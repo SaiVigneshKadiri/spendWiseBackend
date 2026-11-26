@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # SpendWise API
 
 Spring Boot 3 / Java 21 REST API with PostgreSQL, Flyway migrations, BCrypt passwords, short-lived JWT access tokens, and rotating hashed refresh tokens.
@@ -112,3 +113,6 @@ intentionally uses the local `postgres` service instead.
 - ADMIN-only: `POST /api/v1/admin/users` creates a regular user account
 
 Money fields use `BigDecimal` and are stored as PostgreSQL `NUMERIC(12,2)`. UPI expenses include a selected payment app (`GOOGLE_PAY`, `PHONEPE`, `PAYTM`, `BHIM`, `AMAZON_PAY`, or `OTHER`). Expenses, budgets, and salaries are scoped to their authenticated owner. Migration V4 retains the most recently effective salary record per account and removes older salary-history records before enforcing one record per account. Migration V5 adds configurable budget alert percentages and notification read state.
+=======
+# spendWiseBackend
+>>>>>>> e595383918fcd74fe719e087f539547403453964
