@@ -5,6 +5,7 @@ import com.spendwise.budget.Budget;
 import com.spendwise.expense.Expense;
 import com.spendwise.expense.ExpenseController.ExpenseView;
 import com.spendwise.expense.ExpenseRepository;
+import com.spendwise.expense.MonthlyTrend;
 import com.spendwise.expense.PaymentFilter;
 import com.spendwise.salary.SalaryRecord;
 import com.spendwise.salary.SalaryRecordRepository;
@@ -12,8 +13,10 @@ import com.spendwise.security.UserPrincipal;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -60,14 +63,14 @@ public class DashboardController {
                                @RequestParam(required = false) String paymentPlatform) {
         PaymentFilter filter = PaymentFilter.from(paymentMethod, paymentPlatform);
         LocalDate current = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1);
-        List<MonthlyTotal> monthly = java.util.stream.IntStream.range(0, 6)
-                .mapToObj(index -> current.minusMonths(5L - index))
-                .map(month -> {
-                    Instant from = month.atStartOfDay().toInstant(ZoneOffset.UTC);
-                    Instant to = month.plusMonths(1).atStartOfDay().toInstant(ZoneOffset.UTC);
-                    return new MonthlyTotal(month.toString(), expenses.sumByUserAndDateRangeFiltered(
-                            principal.id(), from, to, filter.paymentMethod(), filter.paymentPlatform()));
-                }).toList();
+        List<YearMonth> months = MonthlyTrend.lastSixMonths(current);
+        Map<String, BigDecimal> totals = MonthlyTrend.totalsByMonth(expenses.sumMonthlyByUserFiltered(
+                principal.id(), MonthlyTrend.startUtc(months.getFirst()),
+                MonthlyTrend.startUtc(months.getLast().plusMonths(1)),
+                filter.paymentMethod(), filter.paymentPlatform()));
+        List<MonthlyTotal> monthly = months.stream()
+                .map(month -> new MonthlyTotal(month.toString(), totals.getOrDefault(month.toString(), BigDecimal.ZERO)))
+                .toList();
         Instant start = current.atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant end = current.plusMonths(1).atStartOfDay().toInstant(ZoneOffset.UTC);
         List<CategoryTotal> categories = expenses

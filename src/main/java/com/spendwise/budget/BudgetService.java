@@ -10,8 +10,10 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -80,16 +82,28 @@ public class BudgetService {
         Map<UUID, BigDecimal> spending = budgets.findMonthlySpendingByUserId(userId, budgetMonth, from, to)
                 .stream().collect(Collectors.toMap(BudgetRepository.BudgetSpending::getBudgetId,
                         BudgetRepository.BudgetSpending::getSpentAmount));
+        Set<String> raised = null; // loaded once, and only if some threshold is actually crossed
         for (Budget budget : budgets.findAllByUserIdAndBudgetMonthOrderByNameAsc(userId, budgetMonth)) {
             BigDecimal spent = spending.getOrDefault(budget.getId(), BigDecimal.ZERO);
             int threshold = budget.getAlertPercentage();
             boolean crossed = spent.multiply(BigDecimal.valueOf(100))
                     .compareTo(budget.getAmount().multiply(BigDecimal.valueOf(threshold))) >= 0;
-            if (crossed && !alerts.existsByBudgetIdAndThresholdPercentage(budget.getId(), threshold)) {
-                    alerts.save(new BudgetAlert(UUID.randomUUID(), budget.getUser(), budget,
-                            threshold, spent));
+            if (!crossed) continue;
+            if (raised == null) raised = raisedAlertKeys(userId, budgetMonth);
+            if (raised.add(alertKey(budget.getId(), threshold))) {
+                alerts.save(new BudgetAlert(UUID.randomUUID(), budget.getUser(), budget, threshold, spent));
             }
         }
+    }
+
+    private Set<String> raisedAlertKeys(UUID userId, LocalDate budgetMonth) {
+        return alerts.findAlertKeysByUserIdAndMonth(userId, budgetMonth).stream()
+                .map(key -> alertKey(key.getBudgetId(), key.getThresholdPercentage()))
+                .collect(Collectors.toCollection(HashSet::new));
+    }
+
+    private static String alertKey(UUID budgetId, int threshold) {
+        return budgetId + ":" + threshold;
     }
 
     private Budget ownedBudget(UUID userId, UUID id) {

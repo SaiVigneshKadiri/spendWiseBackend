@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -29,6 +30,12 @@ public class AuthController {
     @PostMapping("/login")
     AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/signup")
+    @ResponseStatus(HttpStatus.CREATED)
+    AuthResponse signUp(@Valid @RequestBody SignUpRequest request) {
+        return authService.signUp(request.fullName(), request.email(), request.password());
     }
 
     @PostMapping("/refresh")
@@ -56,6 +63,9 @@ public class AuthController {
     }
 
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {}
+    public record SignUpRequest(@NotBlank @Size(max = 100) String fullName,
+                                @NotBlank @Email @Size(max = 255) String email,
+                                @NotBlank @Size(max = 72) String password) {}
     public record RefreshRequest(@NotBlank String refreshToken) {}
     public record ProfileUpdateRequest(@NotBlank @Size(max = 100) String fullName,
                                        @NotBlank @Email @Size(max = 255) String email,

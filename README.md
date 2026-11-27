@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+﻿<<<<<<< HEAD
 # SpendWise API
 
 Spring Boot 3 / Java 21 REST API with PostgreSQL, Flyway migrations, BCrypt passwords, short-lived JWT access tokens, and rotating hashed refresh tokens.
@@ -57,7 +57,7 @@ mvn spring-boot:run
 
 Java 21 and Maven are required for this option. Docker is still used for PostgreSQL.
 
-Public self-registration is disabled. Administrators can provision regular accounts from the protected user-management screen. To provision an administrator on startup, set both `APP_ADMIN_EMAIL` and `APP_ADMIN_PASSWORD` in the trusted runtime environment; newly created accounts must meet the password policy described above. The account is created only if that email does not exist. Never expose or commit bootstrap credentials or JWT secrets.
+Anyone can create a regular account with POST /api/v1/auth/signup (the app's Create account screen uses it); the response includes tokens, so the user is signed in immediately. Administrators can also provision regular accounts from the protected user-management screen. To provision an administrator on startup, set both `APP_ADMIN_EMAIL` and `APP_ADMIN_PASSWORD` in the trusted runtime environment; newly created accounts must meet the password policy described above. The account is created only if that email does not exist. Never expose or commit bootstrap credentials or JWT secrets.
 
 ### Deploy to Railway
 
@@ -100,7 +100,7 @@ intentionally uses the local `postgres` service instead.
 
 ## Endpoints
 
-- `POST /api/v1/auth/login`, `/refresh`, `/logout`; authenticated `GET|PUT /api/v1/auth/me` for account details/password (self-service password changes verify the current password)
+- `POST /api/v1/auth/signup` (public), `POST /api/v1/auth/login`, `/refresh`, `/logout`; authenticated `GET|PUT /api/v1/auth/me` for account details/password (self-service password changes verify the current password)
 - `GET|POST /api/v1/users/me/expenses`; `PUT|DELETE /api/v1/users/me/expenses/{id}`
 - `GET|POST /api/v1/users/me/budgets`; `PUT|DELETE /api/v1/users/me/budgets/{id}`
 - `GET /api/v1/users/me/budgets/alerts`; `PUT /api/v1/users/me/budgets/alerts/{id}/read` (persisted, per-budget configurable threshold notifications)

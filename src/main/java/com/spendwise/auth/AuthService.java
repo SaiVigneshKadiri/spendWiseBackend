@@ -40,16 +40,27 @@ public class AuthService {
         this.refreshTokenDays = refreshTokenDays;
     }
 
+    /** Admin-provisioned account; the caller is responsible for authorization. */
     @Transactional
     public UserView createUser(String fullName, String rawEmail, String rawPassword) {
+        User user = createRegularUser(fullName, rawEmail, rawPassword);
+        return new UserView(user.getId(), user.getFullName(), user.getEmail(), user.getRole());
+    }
+
+    /** Public self-service signup: creates a regular account and signs it in immediately. */
+    @Transactional
+    public AuthResponse signUp(String fullName, String rawEmail, String rawPassword) {
+        return issue(createRegularUser(fullName, rawEmail, rawPassword));
+    }
+
+    private User createRegularUser(String fullName, String rawEmail, String rawPassword) {
         requireValidPassword(rawPassword);
         String email = rawEmail.trim().toLowerCase();
         if (users.existsByEmailIgnoreCase(email)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "An account with this email already exists");
         }
-        User user = users.save(new User(UUID.randomUUID(), fullName.trim(), email,
+        return users.save(new User(UUID.randomUUID(), fullName.trim(), email,
                 passwordEncoder.encode(rawPassword), "USER", "ACTIVE"));
-        return new UserView(user.getId(), user.getFullName(), user.getEmail(), user.getRole());
     }
 
     @Transactional

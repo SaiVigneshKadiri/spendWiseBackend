@@ -1,0 +1,7 @@
+# Keep build output, IDE files and local secrets out of the image build context.
+target/
+.idea/
+*.iml
+.git
+.env
+.env.*

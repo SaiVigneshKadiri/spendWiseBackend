@@ -5,13 +5,17 @@ spring:
     url: jdbc:postgresql://${PGHOST}:${PGPORT}/${PGDATABASE}?sslmode=${PGSSLMODE:require}
     username: ${PGUSER}
     password: ${PGPASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      connection-timeout: 10000
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
   flyway:
     enabled: true
   jackson:
@@ -20,6 +24,10 @@ server:
   port: ${PORT:8080}
   error:
     include-message: never
+  compression:
+    enabled: true
+    mime-types: application/json,text/csv
+    min-response-size: 1024
 app:
   jwt:
     secret: ${JWT_SECRET}

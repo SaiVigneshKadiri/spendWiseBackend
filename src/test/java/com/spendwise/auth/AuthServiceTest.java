@@ -157,6 +157,42 @@ class AuthServiceTest {
     }
 
     @Test
+    void selfSignupCreatesActiveRegularUserAndIssuesTokens() {
+        when(users.existsByEmailIgnoreCase("new@example.com")).thenReturn(false);
+        when(passwordEncoder.encode("Long-enough1!")).thenReturn("encoded-password");
+        when(users.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jwtService.createAccessToken(any(User.class))).thenReturn("access-token");
+        when(jwtService.accessTokenExpiresAt()).thenReturn(java.time.Instant.now());
+
+        AuthService service = new AuthService(users, refreshTokens, passwordEncoder, jwtService, 30);
+        AuthController.AuthResponse response = service.signUp(" New User ", " New@Example.com ", "Long-enough1!");
+
+        ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
+        verify(users).save(savedUser.capture());
+        assertEquals("USER", savedUser.getValue().getRole());
+        assertEquals("ACTIVE", savedUser.getValue().getStatus());
+        assertEquals("new@example.com", savedUser.getValue().getEmail());
+        assertEquals("access-token", response.accessToken());
+        assertEquals("new@example.com", response.user().email());
+        verify(refreshTokens).save(any(RefreshToken.class));
+    }
+
+    @Test
+    void selfSignupRejectsAnEmailThatAlreadyExists() {
+        when(users.existsByEmailIgnoreCase("taken@example.com")).thenReturn(true);
+
+        AuthService service = new AuthService(users, refreshTokens, passwordEncoder, jwtService, 30);
+        org.springframework.web.server.ResponseStatusException exception =
+                org.junit.jupiter.api.Assertions.assertThrows(
+                        org.springframework.web.server.ResponseStatusException.class,
+                        () -> service.signUp("Name", "taken@example.com", "Long-enough1!"));
+
+        assertEquals(org.springframework.http.HttpStatus.CONFLICT, exception.getStatusCode());
+        verify(users, org.mockito.Mockito.never()).save(any(User.class));
+        verify(refreshTokens, org.mockito.Mockito.never()).save(any(RefreshToken.class));
+    }
+
+    @Test
     void rejectsPasswordsThatDoNotMeetComplexityPolicy() {
         UUID userId = UUID.randomUUID();
         AuthService service = new AuthService(users, refreshTokens, passwordEncoder, jwtService, 30);
