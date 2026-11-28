@@ -71,9 +71,6 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
                                                 @Param("from") Instant from,
                                                 @Param("to") Instant to);
 
-    @Query("select count(e) from Expense e where e.expenseDateTime >= :from and e.expenseDateTime < :to")
-    long countByDateRange(@Param("from") Instant from, @Param("to") Instant to);
-
     @Query("select count(distinct e.user.id) from Expense e where e.expenseDateTime >= :from")
     long countUsersWithExpensesSince(@Param("from") Instant from);
 
@@ -121,7 +118,6 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
             @Param("userId") UUID userId, @Param("from") Instant from, @Param("to") Instant to,
             @Param("paymentMethod") String paymentMethod, @Param("paymentPlatform") String paymentPlatform);
 
-    List<Expense> findTop500ByOrderByExpenseDateTimeDesc();
 
     interface CategoryTotal {
         String getCategory();

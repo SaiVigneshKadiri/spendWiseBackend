@@ -11,6 +11,5 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByEmailIgnoreCase(String email);
     boolean existsByEmailIgnoreCaseAndIdNot(String email, UUID id);
     List<User> findAllByOrderByCreatedAtDesc();
-    long countByStatus(String status);
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(Instant from, Instant to);
 }

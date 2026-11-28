@@ -12,9 +12,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface BudgetRepository extends JpaRepository<Budget, UUID> {
     List<Budget> findAllByUserIdAndBudgetMonthOrderByNameAsc(UUID userId, LocalDate budgetMonth);
-    List<Budget> findAllByBudgetMonthOrderByNameAsc(LocalDate budgetMonth);
     Optional<Budget> findByIdAndUserId(UUID id, UUID userId);
-    long count();
 
     @Query("""
         select b.id as budgetId, b.amount as budgetAmount, coalesce(sum(e.amount), 0) as spentAmount

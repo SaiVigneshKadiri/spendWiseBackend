@@ -2,7 +2,6 @@ package com.spendwise.dashboard;
 
 import com.spendwise.budget.BudgetRepository;
 import com.spendwise.budget.Budget;
-import com.spendwise.expense.Expense;
 import com.spendwise.expense.ExpenseController.ExpenseView;
 import com.spendwise.expense.ExpenseRepository;
 import com.spendwise.expense.MonthlyTrend;

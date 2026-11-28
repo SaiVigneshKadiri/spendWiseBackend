@@ -6,16 +6,14 @@ spring:
     username: ${PGUSER}
     password: ${PGPASSWORD}
     hikari:
-      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
-      minimum-idle: ${DB_POOL_MIN_IDLE:2}
-      connection-timeout: 10000
+      # Neon scales to zero and drops idle connections; recycle them before it does.
+      minimum-idle: 2
+      max-lifetime: 240000
+      idle-timeout: 120000
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate
-    properties:
-      hibernate:
-        format_sql: false
   flyway:
     enabled: true
   jackson:
