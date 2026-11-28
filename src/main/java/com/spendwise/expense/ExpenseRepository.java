@@ -13,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
     List<Expense> findTop10ByUserIdOrderByExpenseDateTimeDesc(UUID userId);
+    List<Expense> findTop20ByUserIdOrderByExpenseDateTimeDesc(UUID userId);
     @EntityGraph(attributePaths = "user")
     List<Expense> findTop10ByOrderByExpenseDateTimeDesc();
     List<Expense> findTop500ByUserIdOrderByExpenseDateTimeDesc(UUID userId);

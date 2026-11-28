@@ -1,5 +1,8 @@
 package com.spendwise.admin;
 
+import com.spendwise.budget.BudgetController.BudgetView;
+import com.spendwise.budget.BudgetService;
+import com.spendwise.common.FlowLog;
 import com.spendwise.expense.ExpenseController.ExpenseView;
 import com.spendwise.expense.ExpenseRepository;
 import com.spendwise.expense.ExpenseService;
@@ -41,20 +44,44 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/v1/admin")
 public class AdminController {
+    private static final String OVERVIEW = "admin.overview";
+
     private final UserRepository users;
     private final ExpenseRepository expenses;
     private final com.spendwise.budget.BudgetRepository budgets;
     private final ExpenseService expenseService;
     private final AuthService authService;
+    private final BudgetService budgetService;
 
     public AdminController(UserRepository users, ExpenseRepository expenses,
                            com.spendwise.budget.BudgetRepository budgets,
-                           ExpenseService expenseService, AuthService authService) {
+                           ExpenseService expenseService, AuthService authService,
+                           BudgetService budgetService) {
         this.users = users;
         this.expenses = expenses;
         this.budgets = budgets;
         this.expenseService = expenseService;
         this.authService = authService;
+        this.budgetService = budgetService;
+    }
+
+    /** One call for the admin account view: profile, this month's spend, budgets and latest expenses. */
+    @GetMapping("/users/{userId}/overview")
+    @Transactional(readOnly = true)
+    AccountOverview overview(@AuthenticationPrincipal UserPrincipal principal, @PathVariable UUID userId) {
+        User owner = requireManagedUser(principal, userId);
+        LocalDate month = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1);
+        Instant from = month.atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant to = month.plusMonths(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+        BigDecimal spent = FlowLog.step(OVERVIEW, "spent", () -> expenses.sumByUserAndDateRange(userId, from, to));
+        List<BudgetView> budgetList = FlowLog.step(OVERVIEW, "budgets", () -> budgetService.list(userId, month));
+        List<AdminExpenseView> recent = FlowLog.step(OVERVIEW, "recent", () ->
+                expenses.findTop20ByUserIdOrderByExpenseDateTimeDesc(userId).stream().map(AdminExpenseView::from).toList());
+        // Same rule as the user's dashboard: the overall budget, or the sum of category budgets when none is overall.
+        BigDecimal monthlyBudget = budgetList.stream().filter(item -> item.category() == null)
+                .map(BudgetView::amount).findFirst()
+                .orElseGet(() -> budgetList.stream().map(BudgetView::amount).reduce(BigDecimal.ZERO, BigDecimal::add));
+        return new AccountOverview(UserView.from(owner), month, spent, monthlyBudget, budgetList, recent);
     }
 
     @GetMapping("/dashboard")
@@ -238,6 +265,8 @@ public class AdminController {
     public record CategoryTotal(String category, BigDecimal amount) {}
     public record TopSpenderView(UUID userId, String fullName, String email, BigDecimal amount) {}
     public record AnalyticsSummary(List<MonthlyTotal> monthlyTrend, List<CategoryTotal> categoryBreakdown) {}
+    public record AccountOverview(UserView user, LocalDate month, BigDecimal monthSpend, BigDecimal monthlyBudget,
+                                  List<BudgetView> budgets, List<AdminExpenseView> recentExpenses) {}
     public record UserView(UUID id, String fullName, String email, String role, String status, Instant createdAt) {
         public static UserView from(User user) {
             return new UserView(user.getId(), user.getFullName(), user.getEmail(), user.getRole(),
