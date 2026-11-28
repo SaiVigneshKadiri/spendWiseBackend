@@ -2,6 +2,7 @@ package com.spendwise.budget;
 
 import com.spendwise.budget.BudgetController.BudgetRequest;
 import com.spendwise.budget.BudgetController.BudgetView;
+import com.spendwise.common.FlowLog;
 import com.spendwise.expense.ExpenseRepository;
 import com.spendwise.user.User;
 import com.spendwise.user.UserRepository;
@@ -16,6 +17,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +26,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class BudgetService {
+    private static final Logger LOG = LoggerFactory.getLogger(BudgetService.class);
+    private static final String FLOW = "budget";
+
     private final BudgetRepository budgets;
     private final BudgetAlertRepository alerts;
     private final ExpenseRepository expenses;
@@ -40,12 +46,16 @@ public class BudgetService {
     public List<BudgetView> list(UUID userId, LocalDate month) {
         Instant from = month.atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant to = month.plusMonths(1).atStartOfDay().toInstant(ZoneOffset.UTC);
-        Map<UUID, BigDecimal> spending = budgets.findMonthlySpendingByUserId(userId, month, from, to).stream()
-                .collect(Collectors.toMap(BudgetRepository.BudgetSpending::getBudgetId,
-                        BudgetRepository.BudgetSpending::getSpentAmount));
-        return budgets.findAllByUserIdAndBudgetMonthOrderByNameAsc(userId, month)
-                .stream().map(budget -> view(budget, spending.getOrDefault(budget.getId(), BigDecimal.ZERO)))
-                .toList();
+        Map<UUID, BigDecimal> spending = FlowLog.step(FLOW, "spending-query",
+                () -> budgets.findMonthlySpendingByUserId(userId, month, from, to).stream()
+                        .collect(Collectors.toMap(BudgetRepository.BudgetSpending::getBudgetId,
+                                BudgetRepository.BudgetSpending::getSpentAmount)));
+        List<BudgetView> views = FlowLog.step(FLOW, "budgets-query",
+                () -> budgets.findAllByUserIdAndBudgetMonthOrderByNameAsc(userId, month).stream()
+                        .map(budget -> view(budget, spending.getOrDefault(budget.getId(), BigDecimal.ZERO)))
+                        .toList());
+        LOG.info("flow=budget.list rows={}", views.size());
+        return views;
     }
 
     @Transactional
@@ -54,8 +64,9 @@ public class BudgetService {
         Budget budget = new Budget(UUID.randomUUID(), user, request.name().trim(), clean(request.category()),
                 request.budgetMonth().withDayOfMonth(1), request.amount(),
                 request.alertPercentage() == null ? 80 : request.alertPercentage());
-        Budget saved = budgets.save(budget);
+        Budget saved = FlowLog.step(FLOW, "save", () -> budgets.save(budget));
         evaluateAlerts(userId, saved.getBudgetMonth());
+        LOG.info("flow=budget.create result=ok budget={}", saved.getId());
         return view(saved);
     }
 
@@ -66,12 +77,14 @@ public class BudgetService {
                 request.budgetMonth().withDayOfMonth(1), request.amount(),
                 request.alertPercentage() == null ? budget.getAlertPercentage() : request.alertPercentage());
         evaluateAlerts(userId, budget.getBudgetMonth());
+        LOG.info("flow=budget.update result=ok budget={}", id);
         return view(budget);
     }
 
     @Transactional
     public void delete(UUID userId, UUID id) {
         budgets.delete(ownedBudget(userId, id));
+        LOG.info("flow=budget.delete result=ok budget={}", id);
     }
 
     @Transactional
@@ -79,21 +92,25 @@ public class BudgetService {
         LocalDate budgetMonth = month.withDayOfMonth(1);
         Instant from = budgetMonth.atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant to = budgetMonth.plusMonths(1).atStartOfDay().toInstant(ZoneOffset.UTC);
-        Map<UUID, BigDecimal> spending = budgets.findMonthlySpendingByUserId(userId, budgetMonth, from, to)
-                .stream().collect(Collectors.toMap(BudgetRepository.BudgetSpending::getBudgetId,
-                        BudgetRepository.BudgetSpending::getSpentAmount));
+        Map<UUID, BigDecimal> spending = FlowLog.step(FLOW, "alerts-spending-query",
+                () -> budgets.findMonthlySpendingByUserId(userId, budgetMonth, from, to).stream()
+                        .collect(Collectors.toMap(BudgetRepository.BudgetSpending::getBudgetId,
+                                BudgetRepository.BudgetSpending::getSpentAmount)));
         Set<String> raised = null; // loaded once, and only if some threshold is actually crossed
+        int newAlerts = 0;
         for (Budget budget : budgets.findAllByUserIdAndBudgetMonthOrderByNameAsc(userId, budgetMonth)) {
             BigDecimal spent = spending.getOrDefault(budget.getId(), BigDecimal.ZERO);
             int threshold = budget.getAlertPercentage();
             boolean crossed = spent.multiply(BigDecimal.valueOf(100))
                     .compareTo(budget.getAmount().multiply(BigDecimal.valueOf(threshold))) >= 0;
             if (!crossed) continue;
-            if (raised == null) raised = raisedAlertKeys(userId, budgetMonth);
+            if (raised == null) raised = FlowLog.step(FLOW, "alerts-check", () -> raisedAlertKeys(userId, budgetMonth));
             if (raised.add(alertKey(budget.getId(), threshold))) {
                 alerts.save(new BudgetAlert(UUID.randomUUID(), budget.getUser(), budget, threshold, spent));
+                newAlerts++;
             }
         }
+        if (newAlerts > 0) LOG.info("flow=budget.alerts month={} new={}", budgetMonth, newAlerts);
     }
 
     private Set<String> raisedAlertKeys(UUID userId, LocalDate budgetMonth) {

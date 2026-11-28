@@ -6,7 +6,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 public record PaymentFilter(String paymentMethod, String paymentPlatform) {
-    private static final Set<String> METHODS = Set.of("CASH", "CARD", "UPI", "BANK_TRANSFER");
+    /** Allowed payment methods; also the only values the expense write path accepts. */
+    public static final Set<String> METHODS = Set.of("CASH", "CARD", "UPI", "BANK_TRANSFER");
     private static final Set<String> PLATFORMS =
             Set.of("GOOGLE_PAY", "PHONEPE", "PAYTM", "BHIM", "AMAZON_PAY", "OTHER");
 

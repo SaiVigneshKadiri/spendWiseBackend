@@ -2,6 +2,7 @@ package com.spendwise.dashboard;
 
 import com.spendwise.budget.BudgetRepository;
 import com.spendwise.budget.Budget;
+import com.spendwise.common.FlowLog;
 import com.spendwise.expense.ExpenseController.ExpenseView;
 import com.spendwise.expense.ExpenseRepository;
 import com.spendwise.expense.MonthlyTrend;
@@ -25,6 +26,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/users/me")
 public class DashboardController {
+    private static final String DASHBOARD = "dashboard.summary";
+    private static final String ANALYTICS = "dashboard.analytics";
+
     private final ExpenseRepository expenses;
     private final BudgetRepository budgets;
     private final SalaryRecordRepository salaries;
@@ -40,19 +44,21 @@ public class DashboardController {
         LocalDate month = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1);
         Instant from = month.atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant to = month.plusMonths(1).atStartOfDay().toInstant(ZoneOffset.UTC);
-        BigDecimal spent = expenses.sumByUserAndDateRange(principal.id(), from, to);
-        BigDecimal salary = salaries.findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
+        BigDecimal spent = FlowLog.step(DASHBOARD, "spent", () -> expenses.sumByUserAndDateRange(principal.id(), from, to));
+        BigDecimal salary = FlowLog.step(DASHBOARD, "salary", () -> salaries
+                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(
                         principal.id(), LocalDate.now(ZoneOffset.UTC))
-                .map(SalaryRecord::getTakeHomeSalary).orElse(BigDecimal.ZERO);
-        List<Budget> monthlyBudgets = budgets.findAllByUserIdAndBudgetMonthOrderByNameAsc(principal.id(), month);
+                .map(SalaryRecord::getTakeHomeSalary).orElse(BigDecimal.ZERO));
+        List<Budget> monthlyBudgets = FlowLog.step(DASHBOARD, "budgets",
+                () -> budgets.findAllByUserIdAndBudgetMonthOrderByNameAsc(principal.id(), month));
         BigDecimal budget = monthlyBudgets.stream()
                 .filter(item -> item.getCategory() == null)
                 .map(Budget::getAmount)
                 .findFirst()
                 .orElseGet(() -> monthlyBudgets.stream().map(Budget::getAmount)
                         .reduce(BigDecimal.ZERO, BigDecimal::add));
-        List<ExpenseView> recent = expenses.findTop10ByUserIdOrderByExpenseDateTimeDesc(principal.id())
-                .stream().map(ExpenseView::from).toList();
+        List<ExpenseView> recent = FlowLog.step(DASHBOARD, "recent", () -> expenses
+                .findTop10ByUserIdOrderByExpenseDateTimeDesc(principal.id()).stream().map(ExpenseView::from).toList());
         return new DashboardSummary(month, salary, spent, salary.subtract(spent), budget, recent);
     }
 
@@ -63,19 +69,19 @@ public class DashboardController {
         PaymentFilter filter = PaymentFilter.from(paymentMethod, paymentPlatform);
         LocalDate current = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1);
         List<YearMonth> months = MonthlyTrend.lastSixMonths(current);
-        Map<String, BigDecimal> totals = MonthlyTrend.totalsByMonth(expenses.sumMonthlyByUserFiltered(
-                principal.id(), MonthlyTrend.startUtc(months.getFirst()),
-                MonthlyTrend.startUtc(months.getLast().plusMonths(1)),
-                filter.paymentMethod(), filter.paymentPlatform()));
+        Map<String, BigDecimal> totals = FlowLog.step(ANALYTICS, "monthly-trend", () -> MonthlyTrend.totalsByMonth(
+                expenses.sumMonthlyByUserFiltered(principal.id(), MonthlyTrend.startUtc(months.getFirst()),
+                        MonthlyTrend.startUtc(months.getLast().plusMonths(1)),
+                        filter.paymentMethod(), filter.paymentPlatform())));
         List<MonthlyTotal> monthly = months.stream()
                 .map(month -> new MonthlyTotal(month.toString(), totals.getOrDefault(month.toString(), BigDecimal.ZERO)))
                 .toList();
         Instant start = current.atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant end = current.plusMonths(1).atStartOfDay().toInstant(ZoneOffset.UTC);
-        List<CategoryTotal> categories = expenses
+        List<CategoryTotal> categories = FlowLog.step(ANALYTICS, "categories", () -> expenses
                 .sumByUserAndCategoryAndDateRangeFiltered(
                         principal.id(), start, end, filter.paymentMethod(), filter.paymentPlatform()).stream()
-                .map(total -> new CategoryTotal(total.getCategory(), total.getAmount())).toList();
+                .map(total -> new CategoryTotal(total.getCategory(), total.getAmount())).toList());
         return new AnalyticsSummary(monthly, categories);
     }
 

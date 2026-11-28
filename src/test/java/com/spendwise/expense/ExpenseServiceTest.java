@@ -49,11 +49,24 @@ class ExpenseServiceTest {
     @Test
     void requiresAnAppWhenPaymentMethodIsUpi() {
         UUID userId = UUID.randomUUID();
-        when(users.getReferenceById(userId)).thenReturn(
-                new User(userId, "A User", "user@example.test", "hash", "USER", "ACTIVE"));
         ExpenseService service = new ExpenseService(expenses, users, budgets);
         ExpenseRequest request = new ExpenseRequest(
                 "Groceries", new BigDecimal("100.00"), "Food", "UPI",
+                null, null, Instant.parse("2026-11-24T05:00:00Z"), null);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class, () -> service.create(userId, request));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(expenses, never()).save(any());
+    }
+
+    @Test
+    void rejectsPaymentMethodsOutsideTheAllowedSet() {
+        UUID userId = UUID.randomUUID();
+        ExpenseService service = new ExpenseService(expenses, users, budgets);
+        ExpenseRequest request = new ExpenseRequest(
+                "Groceries", new BigDecimal("100.00"), "Food", "bitcoin",
                 null, null, Instant.parse("2026-11-24T05:00:00Z"), null);
 
         ResponseStatusException exception = assertThrows(

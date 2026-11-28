@@ -4,6 +4,7 @@ import com.spendwise.auth.AuthController.AuthResponse;
 import com.spendwise.auth.AuthController.LoginRequest;
 import com.spendwise.auth.AuthController.ProfileUpdateRequest;
 import com.spendwise.auth.AuthController.UserView;
+import com.spendwise.common.FlowLog;
 import com.spendwise.security.JwtService;
 import com.spendwise.user.User;
 import com.spendwise.user.UserRepository;
@@ -13,7 +14,11 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -23,6 +28,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AuthService {
+    private static final Logger LOG = LoggerFactory.getLogger(AuthService.class);
+    private static final String LOGIN = "auth.login";
+    private static final String SIGNUP = "auth.signup";
+    private static final String REFRESH = "auth.refresh";
+
     private final UserRepository users;
     private final RefreshTokenRepository refreshTokens;
     private final PasswordEncoder passwordEncoder;
@@ -50,27 +60,40 @@ public class AuthService {
     /** Public self-service signup: creates a regular account and signs it in immediately. */
     @Transactional
     public AuthResponse signUp(String fullName, String rawEmail, String rawPassword) {
-        return issue(createRegularUser(fullName, rawEmail, rawPassword));
+        User user = FlowLog.step(SIGNUP, "create-user", () -> createRegularUser(fullName, rawEmail, rawPassword));
+        AuthResponse response = FlowLog.step(SIGNUP, "issue-tokens", () -> issue(user));
+        LOG.info("flow={} result=ok user={}", SIGNUP, user.getId());
+        return response;
     }
 
     private User createRegularUser(String fullName, String rawEmail, String rawPassword) {
         requireValidPassword(rawPassword);
         String email = rawEmail.trim().toLowerCase();
-        if (users.existsByEmailIgnoreCase(email)) {
+        if (FlowLog.step(SIGNUP, "check-email", () -> users.existsByEmailIgnoreCase(email))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "An account with this email already exists");
         }
-        return users.save(new User(UUID.randomUUID(), fullName.trim(), email,
-                passwordEncoder.encode(rawPassword), "USER", "ACTIVE"));
+        String hash = FlowLog.step(SIGNUP, "hash-password", () -> passwordEncoder.encode(rawPassword));
+        return users.save(new User(UUID.randomUUID(), fullName.trim(), email, hash, "USER", "ACTIVE"));
     }
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        User user = users.findByEmailIgnoreCase(request.email().trim())
-                .filter(candidate -> passwordEncoder.matches(request.password(), candidate.getPasswordHash()))
-                .filter(candidate -> "ACTIVE".equals(candidate.getStatus()))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                        "Email or password is incorrect"));
-        return issue(user);
+        Optional<User> found = FlowLog.step(LOGIN, "load-user",
+                () -> users.findByEmailIgnoreCase(request.email().trim()));
+        // Always run one bcrypt check, so response time does not reveal whether the email is registered.
+        String hash = found.map(User::getPasswordHash)
+                .orElseGet(() -> passwordEncoder.encode(UUID.randomUUID().toString()));
+        boolean passwordMatches = FlowLog.step(LOGIN, "verify-password",
+                () -> passwordEncoder.matches(request.password(), hash));
+        User user = found.filter(candidate -> passwordMatches && "ACTIVE".equals(candidate.getStatus()))
+                .orElseThrow(() -> {
+                    LOG.warn("flow={} result=rejected", LOGIN);
+                    return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Email or password is incorrect");
+                });
+        AuthResponse response = FlowLog.step(LOGIN, "issue-tokens", () -> issue(user));
+        MDC.put("user", user.getId().toString());
+        LOG.info("flow={} result=ok", LOGIN);
+        return response;
     }
 
     @Transactional
@@ -90,6 +113,7 @@ public class AuthService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is incorrect");
             }
             user.setPasswordHash(passwordEncoder.encode(newPassword));
+            refreshTokens.revokeAllByUserId(userId, Instant.now()); // a password change ends every other session
         } else if (request.currentPassword() != null && !request.currentPassword().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter a new password to change your password");
         }
@@ -111,6 +135,7 @@ public class AuthService {
         if (newPassword != null && !newPassword.isBlank()) {
             requireValidPassword(newPassword);
             user.setPasswordHash(passwordEncoder.encode(newPassword));
+            refreshTokens.revokeAllByUserId(userId, Instant.now());
         }
         user.updateProfile(fullName.trim(), email);
         User saved = users.save(user);
@@ -136,21 +161,41 @@ public class AuthService {
         return new UserView(saved.getId(), saved.getFullName(), saved.getEmail(), saved.getRole());
     }
 
-    @Transactional
+    /**
+     * Rotates the refresh token. Must not roll back: reuse detection revokes every session
+     * of the user and then rejects the request, and that revocation has to be committed.
+     */
+    @Transactional(noRollbackFor = ResponseStatusException.class)
     public AuthResponse refresh(String rawToken) {
-        RefreshToken oldToken = refreshTokens.findByTokenHash(hash(rawToken))
-                .filter(token -> token.getRevokedAt() == null && token.getExpiresAt().isAfter(Instant.now()))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token is invalid or expired"));
-        oldToken.revoke(Instant.now());
-        if (!"ACTIVE".equals(oldToken.getUser().getStatus())) {
+        // Pessimistic lock: two concurrent refreshes with the same token cannot both succeed.
+        RefreshToken token = FlowLog.step(REFRESH, "load-token",
+                () -> refreshTokens.findByTokenHash(hash(rawToken))).orElseThrow(this::invalidRefreshToken);
+        if (token.getRevokedAt() != null) {
+            refreshTokens.revokeAllByUserId(token.getUser().getId(), Instant.now());
+            LOG.warn("flow={} result=reuse-detected user={} action=all-sessions-revoked",
+                    REFRESH, token.getUser().getId());
+            throw invalidRefreshToken();
+        }
+        if (!token.getExpiresAt().isAfter(Instant.now())) {
+            throw invalidRefreshToken();
+        }
+        token.revoke(Instant.now());
+        if (!"ACTIVE".equals(token.getUser().getStatus())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account is inactive");
         }
-        return issue(oldToken.getUser());
+        AuthResponse response = FlowLog.step(REFRESH, "issue-tokens", () -> issue(token.getUser()));
+        LOG.info("flow={} result=ok user={}", REFRESH, token.getUser().getId());
+        return response;
     }
 
     @Transactional
     public void logout(String rawToken) {
         refreshTokens.findByTokenHash(hash(rawToken)).ifPresent(token -> token.revoke(Instant.now()));
+        LOG.info("flow=auth.logout result=ok");
+    }
+
+    private ResponseStatusException invalidRefreshToken() {
+        return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token is invalid or expired");
     }
 
     private AuthResponse issue(User user) {

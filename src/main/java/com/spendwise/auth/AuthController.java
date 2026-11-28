@@ -62,11 +62,12 @@ public class AuthController {
         return authService.updateProfile(principal.id(), request);
     }
 
-    public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {}
+    public record LoginRequest(@NotBlank @Email @Size(max = 255) String email,
+                               @NotBlank @Size(max = 72) String password) {}
     public record SignUpRequest(@NotBlank @Size(max = 100) String fullName,
                                 @NotBlank @Email @Size(max = 255) String email,
                                 @NotBlank @Size(max = 72) String password) {}
-    public record RefreshRequest(@NotBlank String refreshToken) {}
+    public record RefreshRequest(@NotBlank @Size(max = 128) String refreshToken) {}
     public record ProfileUpdateRequest(@NotBlank @Size(max = 100) String fullName,
                                        @NotBlank @Email @Size(max = 255) String email,
                                        String currentPassword,

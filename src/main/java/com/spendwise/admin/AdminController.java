@@ -206,13 +206,19 @@ public class AdminController {
         return new AnalyticsSummary(monthly, categories);
     }
 
+    /** Admins manage regular accounts only: never themselves, and never another admin. */
     private User requireManagedUser(UserPrincipal principal, UUID userId) {
         if (principal.id().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Administrators can only manage other accounts");
         }
-        return users.findById(userId).orElseThrow(() ->
+        User target = users.findById(userId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        if (!"USER".equals(target.getRole())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Administrators can only manage regular user accounts");
+        }
+        return target;
     }
 
     public record CreateUserRequest(@NotBlank @Size(max = 100) String fullName,

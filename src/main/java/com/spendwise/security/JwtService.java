@@ -12,8 +12,16 @@ import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+/**
+ * Access tokens are HS256, short-lived, and must carry this issuer, audience and token type.
+ * Refresh tokens are opaque and never accepted here.
+ */
 @Service
 public class JwtService {
+    static final String ISSUER = "spendwise-api";
+    static final String AUDIENCE = "spendwise-app";
+    private static final String TOKEN_TYPE = "access";
+
     private final SecretKey key;
     private final long accessTokenMinutes;
 
@@ -26,8 +34,10 @@ public class JwtService {
     public String createAccessToken(User user) {
         Instant now = Instant.now();
         return Jwts.builder()
+                .issuer(ISSUER)
+                .audience().add(AUDIENCE).and()
                 .subject(user.getId().toString())
-                .claim("role", user.getRole())
+                .claim("typ", TOKEN_TYPE)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(accessTokenMinutes * 60)))
                 .signWith(key)
@@ -38,8 +48,16 @@ public class JwtService {
         return Instant.now().plusSeconds(accessTokenMinutes * 60);
     }
 
+    /** Verifies signature, expiry, issuer, audience and token type; throws JwtException otherwise. */
     public UUID userId(String token) {
-        Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+        Claims claims = Jwts.parser()
+                .verifyWith(key)
+                .requireIssuer(ISSUER)
+                .requireAudience(AUDIENCE)
+                .require("typ", TOKEN_TYPE)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
         return UUID.fromString(claims.getSubject());
     }
 }

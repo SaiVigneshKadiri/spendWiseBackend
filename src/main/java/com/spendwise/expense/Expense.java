@@ -49,7 +49,7 @@ public class Expense {
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private Instant createdAt;
 
-    @Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
+    @Column(name = "updated_at", nullable = false, insertable = false)
     private Instant updatedAt;
 
     protected Expense() {
@@ -84,6 +84,7 @@ public class Expense {
 
     public void update(String item, BigDecimal amount, String category, String paymentMethod,
                        String paymentPlatform, String transactionId, Instant expenseDateTime, String notes) {
+        this.updatedAt = Instant.now();
         this.item = item;
         this.amount = amount;
         this.category = category;

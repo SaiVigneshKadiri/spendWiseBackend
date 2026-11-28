@@ -38,7 +38,12 @@ public class SecurityConfig {
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                     response.setContentType("application/json");
                     response.getWriter().write("{\"message\":\"Authentication is required\"}");
-                }))
+                })
+                        .accessDeniedHandler((request, response, exception) -> {
+                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            response.setContentType("application/json");
+                            response.getWriter().write("{\"message\":\"You do not have permission to perform this action\"}");
+                        }))
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }

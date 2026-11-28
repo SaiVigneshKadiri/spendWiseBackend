@@ -41,7 +41,7 @@ Start Docker Desktop, then from this directory run:
 docker compose up --build
 ```
 
-The API listens on `http://localhost:8081`, and Swagger UI is at `http://localhost:8081/swagger-ui/index.html`. Flyway checks the Neon schema on startup. Stop with `Ctrl+C`, or run `docker compose down` to remove the container.
+The API listens on `http://localhost:8081`. Swagger UI is at `http://localhost:8081/swagger-ui/index.html` when `OPENAPI_ENABLED=true` is set (off by default). Flyway checks the Neon schema on startup. Stop with `Ctrl+C`, or run `docker compose down` to remove the container.
 
 ### Run with Maven instead
 
@@ -60,6 +60,18 @@ Anyone can create a regular account with POST /api/v1/auth/signup (the app's Cre
 ### Deploy to Railway
 
 Deploy this directory as the backend service (set the service root directory to `backend`). Set `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, and `PGSSLMODE=require` to the Neon direct (unpooled) connection values, plus a strong random `JWT_SECRET`. Optionally set `APP_ADMIN_EMAIL` and `APP_ADMIN_PASSWORD` to bootstrap the first administrator. Set all of these as Railway variables; never put them in the repository.
+## Logs and observability
+
+Each API call writes one line: method, path, status and total time, for example `http method=POST path=/api/v1/auth/login status=401 ms=1934`. Business flows (`auth.login`, `auth.signup`, `auth.refresh`, `expense.*`, `budget.*`, `dashboard.*`) write one line per timed step, so a slow step is visible, for example `flow=auth.login step=verify-password ms=401`. Every line carries `rid` (request id) and `user` (authenticated user id) when known. Request bodies, tokens and passwords are never logged.
+
+Failed logins are logged as `result=rejected` without the email, and refresh-token reuse is logged as a warning that also ends the user's sessions.
+
+## Security notes
+
+- Access tokens are HS256, 15 minutes, and must carry issuer `spendwise-api`, audience `spendwise-app` and type `access`. Refresh tokens are opaque, hashed at rest and rotated on every use. Reusing a rotated token ends every session of that user.
+- Changing a password, or an admin resetting it, ends every session of that account.
+- Admins manage regular accounts only. They have no personal expenses, budgets or salary.
+- Not yet implemented: rate limiting on `/auth/login` and `/auth/signup`. Apply it at the hosting proxy or add a limiter that trusts the real client IP.
 ## Endpoints
 
 - `POST /api/v1/auth/signup` (public), `POST /api/v1/auth/login`, `/refresh`, `/logout`; authenticated `GET|PUT /api/v1/auth/me` for account details/password (self-service password changes verify the current password)

@@ -2,6 +2,7 @@ package com.spendwise.expense;
 
 import com.spendwise.security.UserPrincipal;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -71,7 +72,7 @@ public class ExpenseController {
     }
 
     public record ExpenseRequest(@NotBlank @Size(max = 200) String item,
-                                 @NotNull @DecimalMin(value = "0.01") BigDecimal amount,
+                                 @NotNull @DecimalMin(value = "0.01") @Digits(integer = 10, fraction = 2) BigDecimal amount,
                                  @NotBlank @Size(max = 50) String category,
                                  @NotBlank @Size(max = 30) String paymentMethod,
                                  @Size(max = 50) String paymentPlatform,
